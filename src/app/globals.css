@@ -1,26 +1,175 @@
 @import "tailwindcss";
 
+/* ─── Design Tokens ──────────────────────────────────────────────────── */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Brand */
+  --primary: #6366F1;
+  --primary-dark: #4F46E5;
+  --primary-light: #EEF2FF;
+
+  /* Semantic */
+  --success: #10B981;
+  --success-light: #ECFDF5;
+  --warning: #F59E0B;
+  --warning-light: #FFFBEB;
+  --danger: #EF4444;
+  --danger-light: #FEF2F2;
+
+  /* Surfaces */
+  --bg-body: #F5F6FA;
+  --bg-card: #FFFFFF;
+  --bg-subtle: #F8FAFC;
+
+  /* Text */
+  --text-primary: #0F172A;
+  --text-secondary: #64748B;
+  --text-tertiary: #94A3B8;
+  --text-inverse: #FFFFFF;
+
+  /* Borders */
+  --border: #E8ECF0;
+  --border-strong: #CBD5E1;
+
+  /* Hero gradient */
+  --hero-from: #312E81;
+  --hero-to: #4F46E5;
+
+  /* Shadow */
+  --shadow-card: 0 2px 16px rgba(0, 0, 0, 0.06);
+  --shadow-elevated: 0 8px 32px rgba(0, 0, 0, 0.10);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-primary: var(--primary);
+  --color-primary-dark: var(--primary-dark);
+  --color-primary-light: var(--primary-light);
+  --color-success: var(--success);
+  --color-success-light: var(--success-light);
+  --color-warning: var(--warning);
+  --color-warning-light: var(--warning-light);
+  --color-danger: var(--danger);
+  --color-danger-light: var(--danger-light);
+  --color-bg-body: var(--bg-body);
+  --color-bg-card: var(--bg-card);
+  --color-bg-subtle: var(--bg-subtle);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --font-sans: var(--font-inter);
+  --font-display: var(--font-outfit);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ─── Base ───────────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  scroll-behavior: smooth;
+  height: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--bg-body);
+  color: var(--text-primary);
+  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100dvh;
+}
+
+/* ─── Utilities ──────────────────────────────────────────────────────── */
+
+/* Card - the single reusable surface */
+.card {
+  background: var(--bg-card);
+  border-radius: 24px;
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--border);
+}
+
+/* Input - consistent field style */
+.input-field {
+  width: 100%;
+  background: var(--bg-subtle);
+  border: 1.5px solid var(--border);
+  border-radius: 16px;
+  padding: 14px 16px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  font-family: var(--font-inter), sans-serif;
+}
+.input-field::placeholder {
+  color: var(--text-tertiary);
+}
+.input-field:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+  background: white;
+}
+
+/* Primary button */
+.btn-primary {
+  width: 100%;
+  background: var(--primary);
+  color: white;
+  font-weight: 700;
+  font-size: 15px;
+  border-radius: 16px;
+  padding: 16px;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+  font-family: var(--font-inter), sans-serif;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.btn-primary:hover { opacity: 0.92; }
+.btn-primary:active { transform: scale(0.98); }
+.btn-primary:disabled { opacity: 0.45; pointer-events: none; }
+
+/* Secondary button */
+.btn-secondary {
+  width: 100%;
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  font-weight: 700;
+  font-size: 15px;
+  border-radius: 16px;
+  padding: 16px;
+  border: 1.5px solid var(--border);
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+  font-family: var(--font-inter), sans-serif;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.btn-secondary:hover { background: var(--border); }
+.btn-secondary:active { transform: scale(0.98); }
+
+/* Scrollbar hide */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Hero gradient */
+.hero-gradient {
+  background: linear-gradient(145deg, var(--hero-from) 0%, var(--hero-to) 100%);
+}
+
+/* Shimmer animation for skeleton loaders */
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
