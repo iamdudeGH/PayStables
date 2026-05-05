@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { verifyMessage } from 'viem'
 
 // Server-side Supabase client — can use service role key in the future
 // For now uses the same anon key but with server-side ownership verification
@@ -29,7 +30,6 @@ export async function PATCH(req: NextRequest) {
     }
 
     // ── Cryptographic Signature Verification ───────────────────────────────
-    const { verifyMessage } = await import('viem')
     const message = `Authorize ArcPay to mark Payment Request ${requestId} as ${status}`
     
     try {

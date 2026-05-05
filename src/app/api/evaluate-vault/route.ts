@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { verifyMessage } from 'viem'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -58,7 +59,6 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Cryptographic Signature Verification ───────────────────────────────
-    const { verifyMessage } = await import('viem')
     const message = `Authorize ArcPay to evaluate Smart Vault: ${vaultId}`
     
     try {
