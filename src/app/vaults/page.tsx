@@ -68,6 +68,12 @@ export default function SmartVaultsPage() {
       updateSmartVaultStatus(releasingVault.id, 'released', txHash)
         .then(() => {
           toast.success('Funds successfully released to recipient! 💸')
+        })
+        .catch((err) => {
+          console.error('Failed to update DB:', err)
+          toast.error('Funds released, but failed to update database status.')
+        })
+        .finally(() => {
           setEvaluatingId(null)
           setReleasingVault(null)
           reset()
