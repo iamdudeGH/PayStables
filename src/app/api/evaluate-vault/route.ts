@@ -41,6 +41,8 @@ function isSafeUrl(raw: string): boolean {
 }
 
 // ── Main handler ─────────────────────────────────────────────────────────────
+export const maxDuration = 60 // Allow up to 60 seconds for GenLayer execution
+
 export async function POST(req: NextRequest) {
   // Rate limit by IP
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0] ?? 'unknown'
@@ -117,7 +119,6 @@ export async function POST(req: NextRequest) {
     const account = createAccount(GL_PRIVATE_KEY)
     const client = createGLClient({
       chain: chains.studionet,
-      endpoint: 'https://studio.genlayer.com:7183',
       account,
     })
 
