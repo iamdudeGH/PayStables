@@ -41,7 +41,7 @@ function isSafeUrl(raw: string): boolean {
 }
 
 // ── Main handler ─────────────────────────────────────────────────────────────
-export const maxDuration = 60 // Allow up to 60 seconds for GenLayer execution
+export const maxDuration = 120 // Allow up to 120 seconds for GenLayer consensus
 
 export async function POST(req: NextRequest) {
   // Rate limit by IP
@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
     // ── GenLayer AI Evaluation ──────────────────────────────────────────────
     const { createClient: createGLClient, chains, createAccount } = await import('genlayer-js')
 
-    const GL_CONTRACT_ADDRESS = '0x835eA2A0f74AA25f8B88cBb072bBcab0E16dD2e5'
+    const GL_CONTRACT_ADDRESS = '0xe5cF7a3eD9f2113208C7ee4Da90b2A8513B34Ac3'
     const GL_PRIVATE_KEY = process.env.GL_PRIVATE_KEY as `0x${string}`
 
     if (!GL_PRIVATE_KEY) {
@@ -131,12 +131,19 @@ export async function POST(req: NextRequest) {
 
     console.log('GenLayer tx submitted:', txHash)
 
-    await client.waitForTransactionReceipt({ hash: txHash })
+    await client.waitForTransactionReceipt({
+      hash: txHash,
+      status: 'ACCEPTED',
+      retries: 40,       // 40 × 3s = 120s max wait (CoinMarketCap etc. need more time)
+      interval: 3000,
+    })
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fullTx = await client.getTransaction({ hash: txHash }) as any
     const readable: string =
-      fullTx?.consensus_data?.leader_receipt?.[0]?.result?.payload?.readable ?? '"FALSE"'
+      fullTx?.consensus_data?.leader_receipt?.[0]?.result?.payload?.readable
+      ?? fullTx?.consensus_data?.leader_receipt?.[0]?.calldata?.readable
+      ?? '"FALSE"'
 
     console.log('GenLayer readable result:', readable)
 
