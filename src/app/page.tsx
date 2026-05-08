@@ -272,7 +272,7 @@ export default function Dashboard() {
         <Link href="/vaults" className="mt-4 flex items-center justify-between bg-primary/5 border border-primary/10 rounded-2xl p-4 active:scale-95 transition-transform">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center flex-shrink-0">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-5.224 4.668ab3 3 0 1 0 6.706 5.42 21.31 21.31 0 0 1 2.53.504 21.31 21.31 0 0 1 2.53-.504 3 3 0 1 0 6.706-5.42 4 4 0 0 0-5.224-4.668A3 3 0 1 0 12 5Z"/></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary"><path d="M9.937 15.5 A 2 2 0 0 0 8 17.5 A 2 2 0 0 0 10 19.5 A 2 2 0 0 0 12 17.5"/><path d="M12 17.5 A 2 2 0 0 0 14 19.5 A 2 2 0 0 0 16 17.5 A 2 2 0 0 0 14.063 15.5"/><path d="M14.063 15.5 A 8 8 0 0 0 16 9 A 4 4 0 0 0 12 5"/><path d="M12 5 A 4 4 0 0 0 8 9 A 8 8 0 0 0 9.937 15.5"/><path d="M12 5 V 2"/><path d="M10 9 H 14"/><path d="M12 13 V 9"/></svg>
             </div>
             <div>
               <p className="font-bold text-sm text-text-primary">Smart Vaults</p>
