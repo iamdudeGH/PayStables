@@ -22,6 +22,12 @@ export default function SmartVaultsPage() {
   const [isCreating, setIsCreating] = useState(false)
   const [evaluatingId, setEvaluatingId] = useState<string | null>(null)
   const [releasingVault, setReleasingVault] = useState<SmartVault | null>(null)
+  const [lastFailure, setLastFailure] = useState<{
+    vaultId: string
+    raw: string
+    url: string
+    condition: string
+  } | null>(null)
 
   // Form State
   const [recipientSearch, setRecipientSearch] = useState('')
@@ -154,6 +160,7 @@ export default function SmartVaultsPage() {
       
       if (isSuccess) {
         toast.success('Arc Consensus met! Releasing funds...')
+        setLastFailure(null)
         setReleasingVault(vault)
         
         const to = vault.recipient_address as `0x${string}`
@@ -172,13 +179,26 @@ export default function SmartVaultsPage() {
           }
         }
       } else {
-        toast.error('Consensus failed: Condition not met. Try again later.')
+        toast.error('Condition not met')
+        setLastFailure({
+          vaultId: vault.id,
+          raw: data.raw || 'No response from AI',
+          url: vault.target_url,
+          condition: vault.condition_prompt,
+        })
         setEvaluatingId(null)
         loadVaults()
       }
     } catch (error) {
       console.error('GenLayer execution error:', error)
-      toast.error('Failed to execute AI contract. Network timeout.')
+      const errMsg = error instanceof Error ? error.message : 'Unknown error'
+      setLastFailure({
+        vaultId: vault.id,
+        raw: `Network error: ${errMsg}`,
+        url: vault.target_url,
+        condition: vault.condition_prompt,
+      })
+      toast.error('Failed to execute AI contract')
       setEvaluatingId(null)
     }
   }
@@ -370,7 +390,7 @@ export default function SmartVaultsPage() {
 
                       {vault.status === 'locked' && (
                         <button
-                          onClick={() => handleSimulateAI(vault)}
+                          onClick={() => { setLastFailure(null); handleSimulateAI(vault) }}
                           disabled={evaluatingId === vault.id}
                           className="mt-2 w-full py-2.5 rounded-xl border border-primary text-primary font-bold text-sm flex items-center justify-center gap-2 active:bg-primary/5 transition-colors"
                         >
@@ -380,6 +400,37 @@ export default function SmartVaultsPage() {
                             <><Brain className="w-4 h-4" /> Trigger AI Evaluation</>
                           )}
                         </button>
+                      )}
+
+                      {/* ── Failure Detail Card ──────────────────────── */}
+                      {lastFailure?.vaultId === vault.id && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="mt-3 p-4 bg-danger/5 border border-danger/20 rounded-xl"
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-bold uppercase tracking-widest text-danger">AI Evaluation Failed</p>
+                            <button onClick={() => setLastFailure(null)} className="text-text-tertiary">
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                          <div className="flex flex-col gap-2 text-xs text-text-secondary">
+                            <div>
+                              <span className="font-bold text-text-primary">AI Response: </span>
+                              <span className="font-mono bg-bg-subtle px-1.5 py-0.5 rounded text-danger">{lastFailure.raw}</span>
+                            </div>
+                            <div>
+                              <span className="font-bold text-text-primary">URL checked: </span>
+                              <a href={lastFailure.url} target="_blank" rel="noopener noreferrer" className="text-primary underline truncate">{lastFailure.url}</a>
+                            </div>
+                            <div>
+                              <span className="font-bold text-text-primary">Condition: </span>
+                              <span className="italic">"{lastFailure.condition}"</span>
+                            </div>
+                            <p className="text-text-tertiary mt-1">💡 Try a more specific condition, or verify the URL shows the expected data.</p>
+                          </div>
+                        </motion.div>
                       )}
                     </div>
                   </div>
