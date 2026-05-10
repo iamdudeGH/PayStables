@@ -1,32 +1,37 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Brain, Lock, Unlock, Loader2, ArrowRight, X, ShieldCheck, Globe, Link as LinkIcon, Plus } from 'lucide-react'
+import { Brain, Lock, Unlock, Loader2, X, ShieldCheck, Globe, Link as LinkIcon, Plus, Clock, CheckCircle, AlertTriangle } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import { useActiveAddress } from '@/lib/useActiveAddress'
-import { getSmartVaultsForUser, createSmartVault, updateSmartVaultStatus, searchProfiles } from '@/lib/supabase'
+import { getSmartVaultsForUser, createSmartVault, updateSmartVaultStatus, approveSmartVault, searchProfiles } from '@/lib/supabase'
 import { useERC20Transfer } from '@/lib/useERC20Transfer'
 import { toast } from '@/components/toast'
 import type { SmartVault, Profile } from '@/lib/types'
 
 const EXPLORER = 'https://testnet.arcscan.app'
 
+// Escrow address where vault deposits are sent
+const VAULT_ESCROW_ADDRESS = process.env.NEXT_PUBLIC_VAULT_ESCROW_ADDRESS as `0x${string}` | undefined
 
 export default function SmartVaultsPage() {
-  const { address, isConnected, wagmiConnected, privyWallet, signMessage } = useActiveAddress()
+  const { address, isConnected, wagmiConnected, privyWallet } = useActiveAddress()
   const router = useRouter()
 
   const [vaults, setVaults] = useState<SmartVault[]>([])
   const [loading, setLoading] = useState(true)
   const [isCreating, setIsCreating] = useState(false)
   const [evaluatingId, setEvaluatingId] = useState<string | null>(null)
+  const [approvingId, setApprovingId] = useState<string | null>(null)
   const [releasingVault, setReleasingVault] = useState<SmartVault | null>(null)
+  const [depositingVault, setDepositingVault] = useState(false)
   const [lastFailure, setLastFailure] = useState<{
     vaultId: string
     raw: string
     url: string
     condition: string
+    isUndetermined?: boolean
   } | null>(null)
 
   // Form State
@@ -68,7 +73,7 @@ export default function SmartVaultsPage() {
     return () => clearTimeout(t)
   }, [recipientSearch, address])
 
-  // Handle Release Tx Confirmation
+  // Handle Release Tx Confirmation (fallback for manual release)
   useEffect(() => {
     if (isConfirmed && releasingVault && txHash) {
       updateSmartVaultStatus(releasingVault.id, 'released', txHash)
@@ -88,6 +93,14 @@ export default function SmartVaultsPage() {
     }
   }, [isConfirmed, releasingVault, txHash, reset])
 
+  // Handle deposit confirmation for vault creation
+  useEffect(() => {
+    if (isConfirmed && depositingVault && txHash) {
+      // Deposit confirmed — now create the vault record in Supabase
+      finishVaultCreation(txHash)
+    }
+  }, [isConfirmed, depositingVault, txHash])
+
   const resetForm = () => {
     setSelectedRecipient(null)
     setRecipientSearch('')
@@ -97,47 +110,104 @@ export default function SmartVaultsPage() {
     reset()
   }
 
-  const handleLockFunds = async () => {
+  const finishVaultCreation = async (depositHash: string) => {
     if (!selectedRecipient || !amount || !targetUrl || !condition) return
-    
     try {
       await createSmartVault(
         address as string,
         selectedRecipient.wallet_address,
         parseFloat(amount),
         targetUrl,
-        condition
+        condition,
+        depositHash,
+        VAULT_ESCROW_ADDRESS
       )
-      toast.success('Smart Vault locked! 🔒')
+      toast.success('Smart Vault created! Waiting for recipient approval 🔒')
       setIsCreating(false)
+      setDepositingVault(false)
       resetForm()
       loadVaults()
     } catch {
-      toast.error('Failed to save vault')
+      toast.error('Deposit confirmed but failed to save vault. Contact support.')
+      setDepositingVault(false)
+    }
+  }
+
+  const handleLockFunds = async () => {
+    if (!selectedRecipient || !amount || !targetUrl || !condition) return
+
+    // If we have an escrow address, transfer USDC to it first
+    if (VAULT_ESCROW_ADDRESS) {
+      try {
+        setDepositingVault(true)
+        reset()
+
+        if (wagmiConnected) {
+          sendWithWagmi(VAULT_ESCROW_ADDRESS, amount, 'USDC')
+          // The useEffect watching isConfirmed + depositingVault will handle the rest
+        } else if (privyWallet) {
+          const hash = await sendWithPrivy(privyWallet, VAULT_ESCROW_ADDRESS, amount, 'USDC')
+          // For privy, we get the hash directly, but still need to wait for confirmation
+          // The useEffect will handle it
+        }
+      } catch {
+        toast.error('Deposit transaction failed or rejected')
+        setDepositingVault(false)
+      }
+    } else {
+      // No escrow address configured — create vault without deposit (demo mode)
+      try {
+        await createSmartVault(
+          address as string,
+          selectedRecipient.wallet_address,
+          parseFloat(amount),
+          targetUrl,
+          condition
+        )
+        toast.success('Smart Vault created! Waiting for recipient approval 🔒')
+        setIsCreating(false)
+        resetForm()
+        loadVaults()
+      } catch {
+        toast.error('Failed to save vault')
+      }
+    }
+  }
+
+  const handleApproveVault = async (vault: SmartVault) => {
+    if (vault.recipient_address !== address?.toLowerCase()) {
+      toast.error('Only the recipient can approve this vault.')
+      return
+    }
+
+    setApprovingId(vault.id)
+    try {
+      await approveSmartVault(vault.id, address as string)
+      toast.success('Condition approved! Vault is now active 🔓')
+      loadVaults()
+    } catch (err) {
+      console.error('Failed to approve vault:', err)
+      toast.error('Failed to approve vault')
+    } finally {
+      setApprovingId(null)
     }
   }
 
   const handleSimulateAI = async (vault: SmartVault) => {
     if (vault.creator_address !== address?.toLowerCase()) {
-      toast.error('Only the funder can trigger evaluation in this demo.')
+      toast.error('Only the funder can trigger evaluation.')
+      return
+    }
+
+    if (vault.status !== 'locked') {
+      toast.error('Vault must be approved by recipient before evaluation.')
       return
     }
 
     setEvaluatingId(vault.id)
     
     try {
-      // 1. Prompt for cryptographic signature
-      const message = `Authorize ArcPay to evaluate Smart Vault: ${vault.id}`
-      let signature
-      try {
-        signature = await signMessage(message)
-      } catch (e) {
-        toast.error('Signature rejected')
-        setEvaluatingId(null)
-        return
-      }
-
-      toast.success('Querying GenLayer AI Nodes — this may take ~30s...')
+      toast.success('Querying GenLayer AI Nodes — this may take ~2 min...')
       
       // Call our backend API route which signs and submits the GenLayer transaction
       const response = await fetch('/api/evaluate-vault', {
@@ -146,7 +216,6 @@ export default function SmartVaultsPage() {
         body: JSON.stringify({
           vaultId: vault.id,
           callerAddress: address,
-          signature,
         }),
       })
 
@@ -156,28 +225,46 @@ export default function SmartVaultsPage() {
         throw new Error(data.error || 'API error')
       }
 
-      const isSuccess = data.result === 'TRUE'
-      
-      if (isSuccess) {
-        toast.success('Arc Consensus met! Releasing funds...')
-        setLastFailure(null)
-        setReleasingVault(vault)
-        
-        const to = vault.recipient_address as `0x${string}`
-        const amt = vault.amount.toString()
-        
-        reset()
-        if (wagmiConnected) {
-          sendWithWagmi(to, amt, 'USDC')
-        } else if (privyWallet) {
-          try {
-            await sendWithPrivy(privyWallet, to, amt, 'USDC')
-          } catch {
-            setEvaluatingId(null)
-            setReleasingVault(null)
-            toast.error('Transaction failed or rejected')
+      if (data.result === 'TRUE') {
+        if (data.autoReleased) {
+          // Server already released funds from escrow
+          toast.success('GenLayer Consensus met! Funds auto-released to recipient! 💸')
+          setLastFailure(null)
+          setEvaluatingId(null)
+          loadVaults()
+        } else {
+          // Fallback: manual release (no escrow configured)
+          toast.success('GenLayer Consensus met! Releasing funds...')
+          setLastFailure(null)
+          setReleasingVault(vault)
+          
+          const to = vault.recipient_address as `0x${string}`
+          const amt = vault.amount.toString()
+          
+          reset()
+          if (wagmiConnected) {
+            sendWithWagmi(to, amt, 'USDC')
+          } else if (privyWallet) {
+            try {
+              await sendWithPrivy(privyWallet, to, amt, 'USDC')
+            } catch {
+              setEvaluatingId(null)
+              setReleasingVault(null)
+              toast.error('Transaction failed or rejected')
+            }
           }
         }
+      } else if (data.result === 'UNDETERMINED') {
+        // Network blip or timeout — don't penalize anyone
+        toast.error('Evaluation inconclusive — try again later')
+        setLastFailure({
+          vaultId: vault.id,
+          raw: data.raw || 'Could not determine result',
+          url: vault.target_url,
+          condition: vault.condition_prompt,
+          isUndetermined: true,
+        })
+        setEvaluatingId(null)
       } else {
         toast.error('Condition not met')
         setLastFailure({
@@ -197,9 +284,36 @@ export default function SmartVaultsPage() {
         raw: `Network error: ${errMsg}`,
         url: vault.target_url,
         condition: vault.condition_prompt,
+        isUndetermined: true,
       })
-      toast.error('Failed to execute AI contract')
+      toast.error('Failed to execute AI contract — try again later')
       setEvaluatingId(null)
+    }
+  }
+
+  // ── Status badge helper ────────────────────────────────────────────────────
+  const StatusIcon = ({ status }: { status: SmartVault['status'] }) => {
+    switch (status) {
+      case 'pending_approval':
+        return <Clock className="w-4 h-4 text-amber-500" />
+      case 'locked':
+        return <Lock className="w-4 h-4 text-warning" />
+      case 'evaluating':
+        return <Brain className="w-4 h-4 text-primary animate-pulse" />
+      case 'released':
+        return <Unlock className="w-4 h-4 text-success" />
+      case 'failed':
+        return <X className="w-4 h-4 text-danger" />
+    }
+  }
+
+  const statusLabel = (status: SmartVault['status']) => {
+    switch (status) {
+      case 'pending_approval': return 'Awaiting Approval'
+      case 'locked': return 'Locked'
+      case 'evaluating': return 'Evaluating'
+      case 'released': return 'Released'
+      case 'failed': return 'Failed'
     }
   }
 
@@ -218,7 +332,7 @@ export default function SmartVaultsPage() {
         <h1 className="font-display font-bold text-3xl text-white mb-2 flex items-center gap-2">
           <Brain className="w-8 h-8 text-indigo-300" /> Smart Vaults
         </h1>
-        <p className="text-indigo-200 text-sm">Programmable escrows powered by AI consensus.</p>
+        <p className="text-indigo-200 text-sm">Programmable escrows powered by GenLayer consensus.</p>
       </div>
 
       <div className="flex-1 bg-bg-body px-5 pt-6 pb-8">
@@ -309,6 +423,7 @@ export default function SmartVaultsPage() {
                     placeholder="e.g. Check the website. If the Knicks won the game, return TRUE."
                     className="input-field resize-none h-24"
                   />
+                  <p className="text-xs text-text-tertiary mt-1">⚠️ The recipient must approve this condition before the vault activates.</p>
                 </div>
 
                 {/* Amount */}
@@ -320,16 +435,28 @@ export default function SmartVaultsPage() {
                     onChange={(e) => setAmount(e.target.value)}
                     placeholder="0.00"
                     className="input-field text-2xl font-bold"
+                    min="0"
+                    step="any"
                   />
                 </div>
 
                 <button
                   onClick={handleLockFunds}
-                  disabled={!selectedRecipient || !targetUrl || !condition || !amount}
+                  disabled={!selectedRecipient || !targetUrl || !condition || !amount || depositingVault || isPending}
                   className="btn-primary mt-2"
                 >
-                  <Lock className="w-4 h-4" /> Lock ${amount} in Vault
+                  {depositingVault || isPending ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" /> Depositing...</>
+                  ) : (
+                    <><Lock className="w-4 h-4" /> {VAULT_ESCROW_ADDRESS ? `Deposit $${amount || '0'} to Escrow` : `Lock $${amount || '0'} in Vault`}</>
+                  )}
                 </button>
+
+                {VAULT_ESCROW_ADDRESS && (
+                  <p className="text-xs text-text-tertiary text-center -mt-2">
+                    USDC will be transferred to the ArcPay escrow and auto-released when the condition is met.
+                  </p>
+                )}
               </div>
             </motion.div>
           )}
@@ -351,21 +478,14 @@ export default function SmartVaultsPage() {
             <div className="flex flex-col gap-4">
               {vaults.map((vault) => {
                 const isCreator = vault.creator_address === address?.toLowerCase()
+                const isRecipient = vault.recipient_address === address?.toLowerCase()
                 return (
                   <div key={vault.id} className="card overflow-hidden">
                     <div className="p-4 border-b border-border bg-bg-subtle flex justify-between items-center">
                       <div className="flex items-center gap-2">
-                        {vault.status === 'locked' ? (
-                          <Lock className="w-4 h-4 text-warning" />
-                        ) : vault.status === 'evaluating' ? (
-                          <Brain className="w-4 h-4 text-primary animate-pulse" />
-                        ) : vault.status === 'failed' ? (
-                          <X className="w-4 h-4 text-danger" />
-                        ) : (
-                          <Unlock className="w-4 h-4 text-success" />
-                        )}
+                        <StatusIcon status={vault.status} />
                         <p className="font-bold text-sm uppercase tracking-wider text-text-secondary">
-                          {vault.status}
+                          {statusLabel(vault.status)}
                         </p>
                       </div>
                       <p className="font-display font-bold text-xl">${vault.amount}</p>
@@ -376,6 +496,16 @@ export default function SmartVaultsPage() {
                         <span className="text-text-tertiary">Role</span>
                         <span className="font-bold text-text-primary">{isCreator ? 'Creator (Funder)' : 'Recipient'}</span>
                       </div>
+
+                      {/* Deposit info */}
+                      {vault.deposit_tx_hash && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-text-tertiary">Escrowed</span>
+                          <a href={`${EXPLORER}/tx/${vault.deposit_tx_hash}`} target="_blank" className="text-primary text-xs underline">
+                            View deposit ↗
+                          </a>
+                        </div>
+                      )}
                       
                       <div className="p-3 bg-bg-body rounded-xl border border-border">
                         <div className="flex items-start gap-2 mb-2">
@@ -384,33 +514,75 @@ export default function SmartVaultsPage() {
                         </div>
                         <div className="flex items-start gap-2">
                           <Brain className="w-4 h-4 text-text-tertiary mt-0.5 shrink-0" />
-                          <p className="text-xs text-text-secondary leading-relaxed">"{vault.condition_prompt}"</p>
+                          <p className="text-xs text-text-secondary leading-relaxed">&quot;{vault.condition_prompt}&quot;</p>
                         </div>
                       </div>
 
-                      {vault.status === 'locked' && (
+                      {/* ── Pending Approval: Recipient approves ──────── */}
+                      {vault.status === 'pending_approval' && isRecipient && (
+                        <button
+                          onClick={() => handleApproveVault(vault)}
+                          disabled={approvingId === vault.id}
+                          className="mt-2 w-full py-2.5 rounded-xl bg-success text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform"
+                        >
+                          {approvingId === vault.id ? (
+                            <><Loader2 className="w-4 h-4 animate-spin" /> Approving...</>
+                          ) : (
+                            <><CheckCircle className="w-4 h-4" /> Approve Condition</>
+                          )}
+                        </button>
+                      )}
+
+                      {/* ── Pending Approval: Creator sees waiting ──────── */}
+                      {vault.status === 'pending_approval' && isCreator && (
+                        <div className="mt-2 w-full py-2.5 rounded-xl border border-amber-300 bg-amber-50 text-amber-700 font-bold text-sm flex items-center justify-center gap-2">
+                          <Clock className="w-4 h-4" /> Waiting for recipient to approve
+                        </div>
+                      )}
+
+                      {/* ── Locked: Trigger evaluation ──────────────────── */}
+                      {vault.status === 'locked' && isCreator && (
                         <button
                           onClick={() => { setLastFailure(null); handleSimulateAI(vault) }}
                           disabled={evaluatingId === vault.id}
                           className="mt-2 w-full py-2.5 rounded-xl border border-primary text-primary font-bold text-sm flex items-center justify-center gap-2 active:bg-primary/5 transition-colors"
                         >
                           {evaluatingId === vault.id ? (
-                            <><Loader2 className="w-4 h-4 animate-spin" /> Evaluator running...</>
+                            <><Loader2 className="w-4 h-4 animate-spin" /> Evaluating (~2 min)...</>
                           ) : (
                             <><Brain className="w-4 h-4" /> Trigger AI Evaluation</>
                           )}
                         </button>
                       )}
 
-                      {/* ── Failure Detail Card ──────────────────────── */}
+                      {/* ── Released: Show release tx ──────────────────── */}
+                      {vault.status === 'released' && vault.release_tx_hash && (
+                        <a
+                          href={`${EXPLORER}/tx/${vault.release_tx_hash}`}
+                          target="_blank"
+                          className="mt-2 w-full py-2.5 rounded-xl border border-success text-success font-bold text-sm flex items-center justify-center gap-2"
+                        >
+                          <Unlock className="w-4 h-4" /> View Release Transaction ↗
+                        </a>
+                      )}
+
+                      {/* ── Failure / Undetermined Detail Card ──────────── */}
                       {lastFailure?.vaultId === vault.id && (
                         <motion.div
                           initial={{ opacity: 0, y: -8 }}
                           animate={{ opacity: 1, y: 0 }}
-                          className="mt-3 p-4 bg-danger/5 border border-danger/20 rounded-xl"
+                          className={`mt-3 p-4 border rounded-xl ${
+                            lastFailure.isUndetermined
+                              ? 'bg-amber-50 border-amber-200'
+                              : 'bg-danger/5 border-danger/20'
+                          }`}
                         >
                           <div className="flex items-center justify-between mb-2">
-                            <p className="text-xs font-bold uppercase tracking-widest text-danger">AI Evaluation Failed</p>
+                            <p className={`text-xs font-bold uppercase tracking-widest ${
+                              lastFailure.isUndetermined ? 'text-amber-600' : 'text-danger'
+                            }`}>
+                              {lastFailure.isUndetermined ? 'Evaluation Inconclusive' : 'AI Evaluation Failed'}
+                            </p>
                             <button onClick={() => setLastFailure(null)} className="text-text-tertiary">
                               <X className="w-4 h-4" />
                             </button>
@@ -418,7 +590,9 @@ export default function SmartVaultsPage() {
                           <div className="flex flex-col gap-2 text-xs text-text-secondary">
                             <div>
                               <span className="font-bold text-text-primary">AI Response: </span>
-                              <span className="font-mono bg-bg-subtle px-1.5 py-0.5 rounded text-danger">{lastFailure.raw}</span>
+                              <span className={`font-mono bg-bg-subtle px-1.5 py-0.5 rounded ${
+                                lastFailure.isUndetermined ? 'text-amber-600' : 'text-danger'
+                              }`}>{lastFailure.raw}</span>
                             </div>
                             <div>
                               <span className="font-bold text-text-primary">URL checked: </span>
@@ -426,9 +600,13 @@ export default function SmartVaultsPage() {
                             </div>
                             <div>
                               <span className="font-bold text-text-primary">Condition: </span>
-                              <span className="italic">"{lastFailure.condition}"</span>
+                              <span className="italic">&quot;{lastFailure.condition}&quot;</span>
                             </div>
-                            <p className="text-text-tertiary mt-1">💡 Try a more specific condition, or verify the URL shows the expected data.</p>
+                            {lastFailure.isUndetermined ? (
+                              <p className="text-amber-600 mt-1">⏳ The URL may have been unreachable or the network was congested. You can safely try again — the recipient is not penalized.</p>
+                            ) : (
+                              <p className="text-text-tertiary mt-1">💡 Try a more specific condition, or verify the URL shows the expected data.</p>
+                            )}
                           </div>
                         </motion.div>
                       )}

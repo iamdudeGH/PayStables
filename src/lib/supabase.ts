@@ -310,7 +310,9 @@ export async function createSmartVault(
   recipientAddress: string,
   amount: number,
   targetUrl: string,
-  conditionPrompt: string
+  conditionPrompt: string,
+  depositTxHash?: string,
+  escrowAddress?: string
 ) {
   const { data, error } = await supabase
     .from('smart_vaults')
@@ -320,6 +322,9 @@ export async function createSmartVault(
       amount,
       target_url: targetUrl,
       condition_prompt: conditionPrompt,
+      status: 'pending_approval',
+      deposit_tx_hash: depositTxHash || null,
+      escrow_address: escrowAddress || null,
     })
     .select()
     .single()
@@ -340,15 +345,53 @@ export async function getSmartVaultsForUser(walletAddress: string) {
   return data || []
 }
 
-export async function updateSmartVaultStatus(
+/**
+ * Bilateral approval: recipient accepts the condition before vault activates.
+ * Transitions vault from 'pending_approval' → 'locked'.
+ */
+export async function approveSmartVault(
   vaultId: string,
-  status: 'locked' | 'evaluating' | 'released' | 'failed',
-  txHash?: string
+  recipientAddress: string
 ) {
+  // First verify the caller is the recipient
+  const { data: vault, error: fetchError } = await supabase
+    .from('smart_vaults')
+    .select('recipient_address, status')
+    .eq('id', vaultId)
+    .single()
+
+  if (fetchError || !vault) throw new Error('Vault not found')
+  if (vault.recipient_address !== recipientAddress.toLowerCase()) {
+    throw new Error('Only the recipient can approve this vault')
+  }
+  if (vault.status !== 'pending_approval') {
+    throw new Error(`Vault is not pending approval (current: ${vault.status})`)
+  }
+
   const { error } = await supabase
     .from('smart_vaults')
-    .update({ status, tx_hash: txHash })
+    .update({
+      status: 'locked',
+      recipient_approved_at: new Date().toISOString(),
+    })
     .eq('id', vaultId)
 
   if (error) throw error
 }
+
+export async function updateSmartVaultStatus(
+  vaultId: string,
+  status: 'pending_approval' | 'locked' | 'evaluating' | 'released' | 'failed',
+  txHash?: string
+) {
+  const updateData: Record<string, unknown> = { status }
+  if (txHash) updateData.tx_hash = txHash
+
+  const { error } = await supabase
+    .from('smart_vaults')
+    .update(updateData)
+    .eq('id', vaultId)
+
+  if (error) throw error
+}
+

@@ -54,8 +54,12 @@ export interface SmartVault {
   amount: number
   target_url: string
   condition_prompt: string
-  status: 'locked' | 'evaluating' | 'released' | 'failed'
+  status: 'pending_approval' | 'locked' | 'evaluating' | 'released' | 'failed'
   tx_hash?: string
+  deposit_tx_hash?: string
+  release_tx_hash?: string
+  escrow_address?: string
+  recipient_approved_at?: string
   created_at: string
 }
 

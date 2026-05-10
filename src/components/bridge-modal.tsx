@@ -1,9 +1,7 @@
 'use client'
 
-import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, ExternalLink, ArrowDownToLine, Wallet } from 'lucide-react'
-import { useActiveAddress } from '@/lib/useActiveAddress'
 
 interface BridgeModalProps {
   isOpen: boolean
@@ -11,8 +9,6 @@ interface BridgeModalProps {
 }
 
 export function BridgeModal({ isOpen, onClose }: BridgeModalProps) {
-  const { address, wagmiConnected, privyWallet } = useActiveAddress()
-  
   if (!isOpen) return null
 
   return (
@@ -54,47 +50,25 @@ export function BridgeModal({ isOpen, onClose }: BridgeModalProps) {
           </p>
 
           <div className="space-y-3">
-            {wagmiConnected ? (
-              <a
-                href="https://faucet.circle.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full card flex items-center gap-4 p-4 hover:border-primary transition-colors group cursor-pointer"
-              >
-                <div className="w-10 h-10 bg-[#2775CA]/10 rounded-full flex items-center justify-center flex-shrink-0">
-                  <span className="text-xl">💧</span>
-                </div>
-                <div className="flex-1 text-left">
-                  <p className="font-bold text-sm text-text-primary group-hover:text-primary transition-colors">
-                    Circle Faucet
-                  </p>
-                  <p className="text-xs text-text-tertiary">
-                    Get free testnet USDC directly on Arc
-                  </p>
-                </div>
-                <ExternalLink className="w-4 h-4 text-text-tertiary group-hover:text-primary transition-colors" />
-              </a>
-            ) : (
-              <a
-                href="https://faucet.circle.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full card flex items-center gap-4 p-4 hover:border-primary transition-colors group cursor-pointer"
-              >
-                <div className="w-10 h-10 bg-[#2775CA]/10 rounded-full flex items-center justify-center flex-shrink-0">
-                  <span className="text-xl">💧</span>
-                </div>
-                <div className="flex-1 text-left">
-                  <p className="font-bold text-sm text-text-primary group-hover:text-primary transition-colors">
-                    Circle Faucet
-                  </p>
-                  <p className="text-xs text-text-tertiary">
-                    Get free testnet USDC directly on Arc
-                  </p>
-                </div>
-                <ExternalLink className="w-4 h-4 text-text-tertiary group-hover:text-primary transition-colors" />
-              </a>
-            )}
+            <a
+              href="https://faucet.circle.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full card flex items-center gap-4 p-4 hover:border-primary transition-colors group cursor-pointer"
+            >
+              <div className="w-10 h-10 bg-[#2775CA]/10 rounded-full flex items-center justify-center flex-shrink-0">
+                <span className="text-xl">💧</span>
+              </div>
+              <div className="flex-1 text-left">
+                <p className="font-bold text-sm text-text-primary group-hover:text-primary transition-colors">
+                  Circle Faucet
+                </p>
+                <p className="text-xs text-text-tertiary">
+                  Get free testnet USDC directly on Arc
+                </p>
+              </div>
+              <ExternalLink className="w-4 h-4 text-text-tertiary group-hover:text-primary transition-colors" />
+            </a>
 
             <div className="relative py-3 flex items-center">
               <div className="flex-grow border-t border-border"></div>

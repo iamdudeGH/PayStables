@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { verifyMessage } from 'viem'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -41,7 +40,7 @@ function isSafeUrl(raw: string): boolean {
 }
 
 // ── Main handler ─────────────────────────────────────────────────────────────
-export const maxDuration = 120 // Allow up to 120 seconds for GenLayer consensus
+export const maxDuration = 300 // Allow up to 300 seconds for GenLayer consensus
 
 export async function POST(req: NextRequest) {
   // Rate limit by IP
@@ -54,32 +53,16 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { vaultId, callerAddress, signature } = await req.json()
+    const { vaultId, callerAddress } = await req.json()
 
-    if (!vaultId || !callerAddress || !signature) {
-      return NextResponse.json({ error: 'Missing vaultId, callerAddress, or signature' }, { status: 400 })
-    }
-
-    // ── Cryptographic Signature Verification ───────────────────────────────
-    const message = `Authorize ArcPay to evaluate Smart Vault: ${vaultId}`
-    
-    try {
-      const isValid = await verifyMessage({
-        address: callerAddress as `0x${string}`,
-        message,
-        signature: signature as `0x${string}`,
-      })
-      if (!isValid) {
-        return NextResponse.json({ error: 'Invalid cryptographic signature' }, { status: 403 })
-      }
-    } catch (e) {
-      return NextResponse.json({ error: 'Signature verification failed' }, { status: 403 })
+    if (!vaultId || !callerAddress) {
+      return NextResponse.json({ error: 'Missing vaultId or callerAddress' }, { status: 400 })
     }
 
     // ── Server-side ownership verification ─────────────────────────────────
     const { data: vault, error: vaultError } = await supabase
       .from('smart_vaults')
-      .select('creator_address, recipient_address, target_url, condition_prompt, status, amount')
+      .select('creator_address, recipient_address, target_url, condition_prompt, status, amount, deposit_tx_hash')
       .eq('id', vaultId)
       .single()
 
@@ -108,8 +91,9 @@ export async function POST(req: NextRequest) {
 
     // ── GenLayer AI Evaluation ──────────────────────────────────────────────
     const { createClient: createGLClient, chains, createAccount } = await import('genlayer-js')
+    const { TransactionStatus } = await import('genlayer-js/types')
 
-    const GL_CONTRACT_ADDRESS = '0xe5cF7a3eD9f2113208C7ee4Da90b2A8513B34Ac3'
+    const GL_CONTRACT_ADDRESS = '0x1Ca618cb808DF4fDd93ffca25F7822677cA76e85'
     const GL_PRIVATE_KEY = process.env.GL_PRIVATE_KEY as `0x${string}`
 
     if (!GL_PRIVATE_KEY) {
@@ -131,12 +115,24 @@ export async function POST(req: NextRequest) {
 
     console.log('GenLayer tx submitted:', txHash)
 
-    await client.waitForTransactionReceipt({
-      hash: txHash,
-      status: 'ACCEPTED',
-      retries: 40,       // 40 × 3s = 120s max wait (CoinMarketCap etc. need more time)
-      interval: 3000,
-    })
+    try {
+      await client.waitForTransactionReceipt({
+        hash: txHash,
+        status: TransactionStatus.ACCEPTED,
+        retries: 80,       // 80 × 3s = 240s max wait
+        interval: 3000,
+      })
+    } catch (waitError: any) {
+      if (waitError.message?.includes('Timed out waiting for transaction')) {
+        // Timeout should NOT penalize the recipient — return UNDETERMINED
+        return NextResponse.json({
+          result: 'UNDETERMINED',
+          raw: 'GenLayer AI nodes timed out. The target URL might be blocking automated access (e.g. Cloudflare) or the network is congested.',
+          txHash,
+        })
+      }
+      throw waitError
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fullTx = await client.getTransaction({ hash: txHash }) as any
@@ -147,10 +143,72 @@ export async function POST(req: NextRequest) {
 
     console.log('GenLayer readable result:', readable)
 
-    const isConditionMet = readable.toUpperCase().includes('TRUE')
+    const upper = readable.toUpperCase()
+    const isConditionMet = upper.includes('TRUE')
+    const isUndetermined = upper.includes('UNDETERMINED')
+
+    // ── Server-side fund release ────────────────────────────────────────────
+    // If condition is met AND vault has a deposit, release funds from escrow
+    if (isConditionMet && vault.deposit_tx_hash) {
+      try {
+        const ESCROW_PRIVATE_KEY = process.env.VAULT_ESCROW_PRIVATE_KEY as `0x${string}` | undefined
+        const ESCROW_ADDRESS = process.env.VAULT_ESCROW_ADDRESS
+
+        if (ESCROW_PRIVATE_KEY && ESCROW_ADDRESS) {
+          const { createWalletClient, http, parseUnits, encodeFunctionData } = await import('viem')
+          const arcTestnet = {
+            id: 480,
+            name: 'Arc Testnet',
+            nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+            rpcUrls: { default: { http: ['https://testnet-rpc.arc.xyz'] } },
+          } as const
+
+          const USDC_ADDRESS = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238' as `0x${string}`
+          const ERC20_ABI = [
+            { name: 'transfer', type: 'function', stateMutability: 'nonpayable',
+              inputs: [{ name: 'to', type: 'address' }, { name: 'amount', type: 'uint256' }],
+              outputs: [{ name: '', type: 'bool' }] }
+          ] as const
+
+          const walletClient = createWalletClient({
+            account: ESCROW_PRIVATE_KEY,
+            chain: arcTestnet,
+            transport: http(),
+          })
+
+          const transferData = encodeFunctionData({
+            abi: ERC20_ABI,
+            functionName: 'transfer',
+            args: [vault.recipient_address as `0x${string}`, parseUnits(vault.amount.toString(), 6)],
+          })
+
+          const releaseTxHash = await walletClient.sendTransaction({
+            to: USDC_ADDRESS,
+            data: transferData,
+          })
+
+          // Update vault with release info
+          await supabase
+            .from('smart_vaults')
+            .update({ status: 'released', release_tx_hash: releaseTxHash })
+            .eq('id', vaultId)
+
+          return NextResponse.json({
+            result: 'TRUE',
+            raw: readable,
+            txHash,
+            releaseTxHash,
+            autoReleased: true,
+          })
+        }
+      } catch (releaseError) {
+        console.error('Auto-release failed:', releaseError)
+        // Fall through — frontend will handle manual release
+      }
+    }
 
     return NextResponse.json({
-      result: isConditionMet ? 'TRUE' : 'FALSE',
+      result: isConditionMet ? 'TRUE' : isUndetermined ? 'UNDETERMINED' : 'FALSE',
       raw: readable,
       txHash,
     })

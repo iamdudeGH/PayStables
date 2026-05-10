@@ -1,31 +1,25 @@
 'use client'
 
-import { useAccount } from 'wagmi'
 import { useState, useEffect } from 'react'
 import { searchProfiles, createBillSplit, createPaymentRequest } from '@/lib/supabase'
 import { Search, Plus, Trash2, CheckCircle2, Loader2, Receipt } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { useWallets, usePrivy } from '@privy-io/react-auth'
+import { useActiveAddress } from '@/lib/useActiveAddress'
 import { motion } from 'framer-motion'
+import type { Profile } from '@/lib/types'
 
 type Step = 'details' | 'people' | 'confirm' | 'success'
 
 export default function SplitPage() {
-  const { address: wagmiAddress, isConnected: wagmiConnected } = useAccount()
-  const { wallets } = useWallets()
-  const { authenticated } = usePrivy()
-  const privyWallet = wallets.find((w) => w.walletClientType === 'privy')
-  const externalWallet = wallets.find((w) => w.walletClientType !== 'privy')
-  const address = wagmiAddress || privyWallet?.address || externalWallet?.address
-  const isConnected = wagmiConnected || authenticated
+  const { address, isConnected } = useActiveAddress()
   const router = useRouter()
 
   const [step, setStep] = useState<Step>('details')
   const [title, setTitle] = useState('')
   const [totalAmount, setTotalAmount] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<any[]>([])
-  const [participants, setParticipants] = useState<any[]>([])
+  const [searchResults, setSearchResults] = useState<Profile[]>([])
+  const [participants, setParticipants] = useState<Profile[]>([])
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
@@ -38,7 +32,7 @@ export default function SplitPage() {
     return () => clearTimeout(t)
   }, [searchQuery, address, participants])
 
-  const addParticipant = (user: any) => {
+  const addParticipant = (user: Profile) => {
     setParticipants([...participants, user])
     setSearchQuery('')
     setSearchResults([])
@@ -62,8 +56,11 @@ export default function SplitPage() {
         await createPaymentRequest(address, p.address, p.amount, `Bill split: ${title}`)
       }
       setStep('success')
-    } catch (e) { console.error(e) }
-    setSubmitting(false)
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const stepIndex = { details: 0, people: 1, confirm: 2, success: 3 }[step]

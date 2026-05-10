@@ -43,11 +43,12 @@ class SmartVault(gl.Contract):
                 return "FALSE"
                 
             except Exception as e:
-                # If the webpage fails to load, return FALSE
-                return "FALSE"
+                # If the webpage fails to load, return UNDETERMINED
+                # so a transient network blip doesn't penalize the recipient
+                return "UNDETERMINED"
             
         # 4. Use Strict Equality Consensus
-        # The Arc Network requires a threshold of validators to return the EXACT same string
+        # GenLayer requires a threshold of validators to return the EXACT same string
         # before this function writes to state or returns.
         consensus_result = gl.eq_principle.strict_eq(llm_task)
         
