@@ -115,13 +115,17 @@ export default function ScanAndPay() {
         if (payMatch) {
           scanner?.clear()
           const merchantUsername = payMatch[1].replace('@', '')
-          const merchantProfile = await getProfileByUsername(merchantUsername)
-          if (merchantProfile) {
-            setRecipientAddress(merchantProfile.wallet_address)
-            setRecipient(merchantProfile)
-            setStep('amount')
-          } else {
-            toast.error(`Merchant @${merchantUsername} not found`)
+          try {
+            const merchantProfile = await getProfileByUsername(merchantUsername)
+            if (merchantProfile) {
+              setRecipientAddress(merchantProfile.wallet_address)
+              setRecipient(merchantProfile)
+              setStep('amount')
+            } else {
+              toast.error(`Merchant @${merchantUsername} not found`)
+            }
+          } catch {
+            toast.error('Failed to look up merchant. Check your connection.')
           }
           return
         }
@@ -136,7 +140,17 @@ export default function ScanAndPay() {
           if (p) setRecipient(p)
           scanner?.clear()
           setStep('amount')
+          return
         }
+
+        // Fallback: if it's a URL we don't recognize, try to open it
+        if (decoded.startsWith('http')) {
+          scanner?.clear()
+          window.location.href = decoded
+          return
+        }
+
+        toast.error('Unrecognized QR code format')
       }, () => {})
     }
     init()
@@ -166,7 +180,10 @@ export default function ScanAndPay() {
       } catch {
         // error already shown via toast in useEffect above
       }
+      return
     }
+    // No wallet available — unblock the UI
+    toast.error('No wallet connected. Please reconnect and try again.')
   }
 
   if (!isConnected) {
