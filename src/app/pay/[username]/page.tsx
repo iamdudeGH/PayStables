@@ -69,11 +69,19 @@ export default function PublicPayPage() {
     }
   }, [isConfirmed, txHash, merchant, paying, amount, address])
 
+  // Check if the connected user is the merchant (prevent self-payment)
+  const isSelf = authenticated && address && merchant && address.toLowerCase() === merchant.wallet_address.toLowerCase()
+
   const handlePay = async () => {
     if (!merchant || !amount || parseFloat(amount) <= 0) return
 
     if (!authenticated) {
       login()
+      return
+    }
+
+    if (isSelf) {
+      toast.error("You can't pay yourself!")
       return
     }
 
@@ -197,7 +205,12 @@ export default function PublicPayPage() {
           />
         </div>
 
-        {authenticated ? (
+        {isSelf ? (
+          <div className="w-full bg-amber-50 border border-amber-200 rounded-2xl py-4 px-5 text-center">
+            <p className="font-bold text-amber-700 text-sm mb-1">This is your store</p>
+            <p className="text-amber-600 text-xs">Share this link with customers so they can pay you.</p>
+          </div>
+        ) : authenticated ? (
           <button
             onClick={handlePay}
             disabled={!amount || parseFloat(amount) <= 0 || isPending || paying}
