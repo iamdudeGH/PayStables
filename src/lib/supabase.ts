@@ -49,7 +49,9 @@ export async function createProfile(
   walletAddress: string,
   username: string,
   displayName: string,
-  avatarEmoji: string
+  avatarEmoji: string,
+  accountType: 'user' | 'merchant' = 'user',
+  businessName?: string
 ): Promise<Profile> {
   const { data, error } = await supabase
     .from('profiles')
@@ -58,6 +60,8 @@ export async function createProfile(
       username: username.toLowerCase(),
       display_name: displayName,
       avatar_emoji: avatarEmoji,
+      account_type: accountType,
+      business_name: businessName || null,
     })
     .select()
     .single()
@@ -395,3 +399,60 @@ export async function updateSmartVaultStatus(
   if (error) throw error
 }
 
+// ── Merchant Payments helpers ────────────────────────────────────────────────
+
+export async function recordMerchantPayment(
+  merchantAddress: string,
+  payerAddress: string | null,
+  payerUsername: string | null,
+  amount: number,
+  txHash: string,
+  note?: string
+) {
+  const { error } = await supabase
+    .from('merchant_payments')
+    .insert({
+      merchant_address: merchantAddress.toLowerCase(),
+      payer_address: payerAddress?.toLowerCase() || null,
+      payer_username: payerUsername || null,
+      amount,
+      tx_hash: txHash,
+      note: note || '',
+    })
+
+  if (error) console.error('Failed to record merchant payment:', error)
+}
+
+export async function getMerchantPayments(
+  merchantAddress: string,
+  limit: number = 50
+) {
+  const { data, error } = await supabase
+    .from('merchant_payments')
+    .select('*')
+    .eq('merchant_address', merchantAddress.toLowerCase())
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  if (error) console.error(error)
+  return data || []
+}
+
+export async function getMerchantEarningsToday(merchantAddress: string) {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  const { data, error } = await supabase
+    .from('merchant_payments')
+    .select('amount')
+    .eq('merchant_address', merchantAddress.toLowerCase())
+    .gte('created_at', today.toISOString())
+
+  if (error) {
+    console.error(error)
+    return { total: 0, count: 0 }
+  }
+
+  const total = (data || []).reduce((sum, p) => sum + Number(p.amount), 0)
+  return { total, count: data?.length || 0 }
+}

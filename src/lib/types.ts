@@ -6,6 +6,8 @@ export interface Profile {
   username: string
   display_name: string
   avatar_emoji: string
+  account_type: 'user' | 'merchant'
+  business_name?: string
   created_at: string
 }
 
@@ -64,3 +66,14 @@ export interface SmartVault {
 }
 
 export type ProfileCache = Record<string, Profile>
+
+export interface MerchantPayment {
+  id: string
+  merchant_address: string
+  payer_address?: string
+  payer_username?: string
+  amount: number
+  tx_hash: string
+  note?: string
+  created_at: string
+}

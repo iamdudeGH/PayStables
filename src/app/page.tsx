@@ -65,6 +65,13 @@ export default function Dashboard() {
     if (ready && !isConnected) router.push('/login')
   }, [ready, isConnected, router])
 
+  // ── Redirect merchant accounts to merchant dashboard ──────────────────────
+  useEffect(() => {
+    if (profile && profile.account_type === 'merchant') {
+      router.push('/merchant')
+    }
+  }, [profile, router])
+
   // ── Handle tx confirmation ────────────────────────────────────────────────
   useEffect(() => {
     if (isConfirmed && payingRequestId && txHash && address && approvedSignature) {
