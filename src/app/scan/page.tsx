@@ -3,10 +3,11 @@
 import { useEffect, useState } from 'react'
 import { CheckCircle2, ArrowRight, Loader2, Search, Camera, X, ChevronRight } from 'lucide-react'
 import { arcTestnet } from '@/lib/wagmi'
-import { getProfileByAddress, searchProfiles, getRecentContacts, upsertRecentContact } from '@/lib/supabase'
+import { getProfileByAddress, searchProfiles, getRecentContacts, upsertRecentContact, recordMerchantPayment, getProfileByUsername } from '@/lib/supabase'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { useActiveAddress } from '@/lib/useActiveAddress'
+import { useProfile } from '@/hooks/useProfile'
 import { useERC20Transfer } from '@/lib/useERC20Transfer'
 import { toast } from '@/components/toast'
 import type { Profile } from '@/lib/types'
@@ -20,6 +21,7 @@ export default function ScanAndPay() {
   const { address, isConnected, wagmiConnected, privyWallet } = useActiveAddress()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { profile: senderProfile } = useProfile(address)
 
   const [mode, setMode] = useState<Mode>('search')
   const [step, setStep] = useState<Step>('pick')
@@ -59,13 +61,23 @@ export default function ScanAndPay() {
   }, [searchParams, address, recipient])
 
   useEffect(() => {
-    if (isConfirmed) {
+    if (isConfirmed && txHash) {
       setStep('success')
       if (address && recipientAddress) {
         upsertRecentContact(address, recipientAddress)
       }
+      // Record to merchant_payments if recipient is a merchant
+      if (recipient && recipient.account_type === 'merchant' && amount && txHash) {
+        recordMerchantPayment(
+          recipient.wallet_address,
+          address || null,
+          senderProfile?.username || null,
+          parseFloat(amount),
+          txHash
+        ).catch(console.error)
+      }
     }
-  }, [isConfirmed, address, recipientAddress])
+  }, [isConfirmed, txHash, address, recipientAddress, recipient, amount, senderProfile])
 
   useEffect(() => {
     if (error) toast.error(error.slice(0, 120))
@@ -98,6 +110,23 @@ export default function ScanAndPay() {
       if (!document.getElementById('reader')) return
       scanner = new Html5QrcodeScanner('reader', { fps: 10, qrbox: { width: 240, height: 240 }, aspectRatio: 1 }, false)
       scanner.render(async (decoded: string) => {
+        // Handle merchant pay URLs: e.g. https://domain.com/pay/username or /pay/username
+        const payMatch = decoded.match(/\/pay\/(@?[\w]+)/)
+        if (payMatch) {
+          scanner?.clear()
+          const merchantUsername = payMatch[1].replace('@', '')
+          const merchantProfile = await getProfileByUsername(merchantUsername)
+          if (merchantProfile) {
+            setRecipientAddress(merchantProfile.wallet_address)
+            setRecipient(merchantProfile)
+            setStep('amount')
+          } else {
+            toast.error(`Merchant @${merchantUsername} not found`)
+          }
+          return
+        }
+
+        // Handle standard formats
         let addr = ''
         if (decoded.includes('paystables://transfer?address=')) addr = decoded.split('address=')[1]
         else if (decoded.startsWith('0x') && decoded.length === 42) addr = decoded
